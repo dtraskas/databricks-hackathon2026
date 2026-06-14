@@ -2,7 +2,7 @@
 """
 scripts/clean.py
 
-Tear down the Lakebase app deployment.
+Tear down the hackathon2026-app deployment.
 
 Removes everything this bundle created in the Databricks workspace (the app,
 its compute, and the uploaded source files) via `databricks bundle destroy`,
@@ -85,14 +85,14 @@ def remove_local_state() -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Tear down the Lakebase app deployment")
+    parser = argparse.ArgumentParser(description="Tear down the hackathon2026-app deployment")
     parser.add_argument("--profile", help="Databricks CLI profile (~/.databrickscfg)")
     parser.add_argument("--target", help="Bundle target (e.g. prod, dev)")
     parser.add_argument("--auto-approve", action="store_true", help="Skip the confirmation prompt")
     args = parser.parse_args()
 
     target_label = args.target or "dev"
-    print(f"\nCleaning lakebase → {target_label}")
+    print(f"\nCleaning hackathon2026-app → {target_label}")
 
     if not args.auto_approve and not confirm(target_label):
         print("\nCancelled")

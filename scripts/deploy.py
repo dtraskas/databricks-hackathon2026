@@ -2,7 +2,7 @@
 """
 scripts/deploy.py
 
-Deploy the Lakebase app to Databricks Apps.
+Deploy the hackathon2026-app to Databricks Apps.
 
 Flow: bundle deploy (creates/updates the app + compute) → wait for the compute
 to become ACTIVE → apps deploy (uploads and runs the code). The wait matters on
@@ -119,7 +119,7 @@ def resolve_bundle_config(profile: str | None, target: str | None) -> tuple[str,
         config = json.loads(result.stdout)
         return (
             config["workspace"]["file_path"],
-            config["resources"]["apps"]["lakebase"]["name"],
+            config["resources"]["apps"]["hackathon2026-app"]["name"],
         )
     except (KeyError, json.JSONDecodeError) as e:
         error(f"Could not parse bundle config: {e}")
@@ -220,7 +220,7 @@ def create_app_deployment(app_name: str, source_code_path: str, profile: str | N
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Deploy Lakebase to Databricks Apps")
+    parser = argparse.ArgumentParser(description="Deploy hackathon2026-app to Databricks Apps")
     parser.add_argument("--profile", help="Databricks CLI profile (~/.databrickscfg)")
     parser.add_argument("--target", help="Bundle target (e.g. prod, dev)")
     parser.add_argument("--skip-build", action="store_true", help="Skip frontend build")
@@ -233,7 +233,7 @@ def main():
     args = parser.parse_args()
 
     target_label = args.target or "dev"
-    print(f"\nDeploying lakebase → {target_label}\n")
+    print(f"\nDeploying hackathon2026-app → {target_label}\n")
 
     # Resolved once after the bundle deploy step populates it.
     config: dict[str, str] = {}

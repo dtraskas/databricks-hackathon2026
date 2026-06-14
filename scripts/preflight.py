@@ -158,13 +158,13 @@ def check_backend_startup(port: int, timeout: int = 30) -> bool:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Preflight checks for Lakebase")
+    parser = argparse.ArgumentParser(description="Preflight checks for hackathon2026-app")
     parser.add_argument("--port", type=int, default=8000, help="Backend port to test")
     parser.add_argument("--skip-backend", action="store_true", help="Skip backend startup test")
     args = parser.parse_args()
 
     print("\n" + "=" * 60)
-    print("  Lakebase — Preflight Checks")
+    print("  hackathon2026-app — Preflight Checks")
     print("=" * 60)
 
     checks = [

@@ -1,6 +1,6 @@
-# Lakebase Template
+# hackathon2026-app
 
-Minimal starter template for building applications with Databricks Lakebase. A Python FastAPI backend serves a React frontend and connects to a Lakebase endpoint using OAuth tokens that are refreshed automatically in the background.
+App for the Databricks Hackathon 2026. A Python FastAPI backend serves a React frontend and connects to a Databricks Lakebase endpoint using OAuth tokens that are refreshed automatically in the background.
 
 ## Quick Start
 

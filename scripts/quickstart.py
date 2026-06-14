@@ -2,7 +2,7 @@
 """
 scripts/quickstart.py
 
-Interactive initialization script for Lakebase.
+Interactive initialization script for hackathon2026-app.
 Sets up .env and installs dependencies.
 
 Usage:
@@ -148,7 +148,7 @@ def summary():
     """Print setup summary and next steps."""
     print_header("Setup Complete")
 
-    print("[✓] Lakebase initialized!")
+    print("[✓] hackathon2026-app initialized!")
     print("\n[Next steps]")
     print("  1. Start the app:")
     print("       uv run python -m scripts.start_app")
@@ -160,7 +160,7 @@ def summary():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Initialize Lakebase")
+    parser = argparse.ArgumentParser(description="Initialize hackathon2026-app")
     args = parser.parse_args()
 
     steps = [

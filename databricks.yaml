@@ -1,23 +1,22 @@
 bundle:
-  name: lakebase
+  name: hackathon2026-app
 
 variables:
   lakebase_branch:
-    description: Lakebase branch resource path
+    description: App to enter Databricks Hackathon 2026
     default: projects/dev-instance/branches/production
   lakebase_database:
     description: Lakebase database resource path
     default: projects/dev-instance/branches/production/databases/databricks-postgres
 
-# Ship the built frontend (gitignored) alongside the source.
 sync:
   include:
     - frontend/dist/**
 
 resources:
   apps:
-    lakebase:
-      name: lakebase
+    hackathon2026-app:
+      name: hackathon2026-app
       description: "FastAPI app connected to a Databricks Lakebase database."
       source_code_path: .
 

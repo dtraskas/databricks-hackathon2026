@@ -129,7 +129,7 @@ def init_engine():
             pool_recycle=POOL_RECYCLE,
             connect_args={
                 "command_timeout": COMMAND_TIMEOUT,
-                "server_settings": {"application_name": "lakebase_app"},
+                "server_settings": {"application_name": "hackathon2026_app"},
                 "ssl": ssl_ctx,
             },
         )

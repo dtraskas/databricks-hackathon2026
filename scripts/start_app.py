@@ -2,7 +2,7 @@
 """
 scripts/start_app.py
 
-Start Lakebase app locally with backend and optionally frontend in dev mode.
+Start hackathon2026-app locally with backend and optionally frontend in dev mode.
 Monitors processes and provides a single entry point.
 
 Usage:
@@ -136,7 +136,7 @@ class ProcessManager:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Start Lakebase app locally")
+    parser = argparse.ArgumentParser(description="Start hackathon2026-app locally")
     parser.add_argument(
         "--dev",
         action="store_true",
@@ -162,7 +162,7 @@ def main():
     args = parser.parse_args()
 
     print("\n" + "=" * 60)
-    print("  Lakebase — Local Development")
+    print("  hackathon2026-app — Local Development")
     print("=" * 60)
 
     manager = ProcessManager()
