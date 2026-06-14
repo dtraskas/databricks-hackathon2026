@@ -1,0 +1,13 @@
+command:
+  - uv
+  - run
+  - uvicorn
+  - backend.app:app
+  - --host
+  - "0.0.0.0"
+  - --port
+  - "8000"
+
+env:
+  - name: LAKEBASE_ENDPOINT
+    valueFrom: lakebase-postgres
