@@ -6,6 +6,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [health, setHealth] = useState(null);
+  const [agentInput, setAgentInput] = useState('');
+  const [agentReply, setAgentReply] = useState(null);
+  const [agentLoading, setAgentLoading] = useState(false);
 
   useEffect(() => {
     fetchHealth();
@@ -31,6 +34,21 @@ function App() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const askAgent = async () => {
+    const message = agentInput.trim();
+    if (!message) return;
+    try {
+      setAgentLoading(true);
+      setError(null);
+      const result = await client.askAgent(message);
+      setAgentReply(result.response);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAgentLoading(false);
     }
   };
 
@@ -72,6 +90,32 @@ function App() {
               Refresh Data
             </button>
           </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Ask the Agent</h2>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={agentInput}
+              onChange={(e) => setAgentInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && askAgent()}
+              placeholder="Ask anything..."
+              className="flex-1 border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              onClick={askAgent}
+              disabled={agentLoading}
+              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition disabled:opacity-50"
+            >
+              {agentLoading ? 'Thinking...' : 'Send'}
+            </button>
+          </div>
+          {agentReply && (
+            <p className="mt-4 text-gray-700 whitespace-pre-wrap bg-gray-50 border rounded p-4">
+              {agentReply}
+            </p>
+          )}
         </div>
 
         <div className="bg-white rounded-lg shadow-md p-6">

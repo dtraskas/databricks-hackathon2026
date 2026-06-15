@@ -115,6 +115,30 @@ async def get_lakebase_data(
         )
 
 
+@api_router.post("/api/agent/chat")
+async def agent_chat(body: Dict[str, Any]) -> Dict[str, str]:
+    """Send a message to the agent and return its reply."""
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="'message' is required",
+        )
+
+    from backend.agent import ask
+
+    try:
+        # The agent makes a blocking network call; keep the event loop free.
+        reply = await asyncio.to_thread(ask, message)
+        return {"response": reply}
+    except Exception as e:
+        logger.error(f"Agent request failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Agent request failed: {e}",
+        )
+
+
 @app.get("/health")
 async def health():
     """Health check endpoint."""
