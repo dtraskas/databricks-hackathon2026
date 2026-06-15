@@ -16,8 +16,8 @@ sync:
 resources:
   apps:
     hackathon2026-app:
-      name: hackathon2026-app
-      description: "FastAPI app connected to a Databricks Lakebase database."
+      name: databeat
+      description: "Databeat."
       source_code_path: .
 
       # Binds the app's service principal to the Lakebase database. On deploy

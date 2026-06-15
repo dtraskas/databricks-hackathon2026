@@ -56,8 +56,8 @@ function App() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <header className="bg-white shadow-sm">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <h1 className="text-4xl font-bold text-gray-900">Lakebase Connection</h1>
-          <p className="text-gray-600 mt-1">PostgreSQL via OAuth Tokens</p>
+          <h1 className="text-4xl font-bold text-gray-900">Databeat</h1>
+          <p className="text-gray-600 mt-1">Databeat Monitor</p>
         </div>
       </header>
 
