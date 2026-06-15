@@ -16,7 +16,6 @@ dependencies = [
     "openai>=1.0.0",
     "python-dotenv>=1.0.0",
     "sqlalchemy>=2.0.0",
-    "sqlmodel>=0.0.21",
     "uvicorn[standard]>=0.32.0",
 ]
 

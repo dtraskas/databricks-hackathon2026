@@ -9,7 +9,7 @@ import logging
 import time
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Any, Dict
+from typing import Dict
 
 import uvicorn
 from backend.config.database import (
@@ -18,11 +18,9 @@ from backend.config.database import (
     start_token_refresh,
     stop_token_refresh,
 )
-# from errors.handlers import register_exception_handlers
-from fastapi import APIRouter, HTTPException, status
-# from services.db.connector import close_connections
-from sqlalchemy import text
-from sqlmodel import SQLModel
+from backend.routers import facilities, lakebase
+# Agent endpoint is disabled — see backend/routers/agents.py (scaffolding).
+# from backend.routers import agents
 from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Request
 
@@ -41,10 +39,6 @@ async def lifespan(app: FastAPI):
 
     try:
         init_engine()
-        from backend.config.database import engine
-
-        async with engine.begin() as conn:
-            await conn.run_sync(SQLModel.metadata.create_all)
         await start_token_refresh()
         health_check_task = asyncio.create_task(check_database_health(300))
         logger.info("Database engine initialized and health monitoring started")
@@ -65,7 +59,6 @@ async def lifespan(app: FastAPI):
             logger.info("Database health check task cancelled successfully")
         await stop_token_refresh()
     logger.info("Application shutdown complete")
-    # close_connections()
 
 
 # Create the main FastAPI application
@@ -76,77 +69,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-api_router = APIRouter()
-
-
-@api_router.get("/api/lakebase/data")
-async def get_lakebase_data(
-    table: str = "information_schema.tables",
-    limit: int = 10,
-) -> dict[str, Any]:
-    """Get data from a Lakebase table. Table must be in 'schema.table' format."""
-    from backend.config.database import AsyncSessionLocal
-
-    if AsyncSessionLocal is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database not initialized. Check server logs for connection issues.",
-        )
-
-    if not table or "." not in table:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Table must be in format: schema.table",
-        )
-
-    limit = min(max(limit, 1), 1000)
-
-    try:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(text(f"SELECT * FROM {table} LIMIT {limit}"))
-            columns = list(result.keys())
-            rows = result.fetchall()
-            return {"columns": columns, "data": [dict(zip(columns, row)) for row in rows]}
-    except Exception as e:
-        logger.error(f"Query error for table {table}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to execute query",
-        )
-
-
-@api_router.post("/api/agent/chat")
-async def agent_chat(body: Dict[str, Any]) -> Dict[str, str]:
-    """Send a message to the agent and return its reply."""
-    message = (body.get("message") or "").strip()
-    if not message:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="'message' is required",
-        )
-
-    from backend.agent import ask
-
-    try:
-        # The agent makes a blocking network call; keep the event loop free.
-        reply = await asyncio.to_thread(ask, message)
-        return {"response": reply}
-    except Exception as e:
-        logger.error(f"Agent request failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Agent request failed: {e}",
-        )
-
-
 @app.get("/health")
 async def health():
     """Health check endpoint."""
     return {"status": "ok"}
 
 
-# Include the API router
-app.include_router(api_router)
+# Register API routers. Agent endpoints are temporarily disabled.
+app.include_router(facilities.router)
+app.include_router(lakebase.router)
+# app.include_router(agents.router)
 
 # Performance monitoring middleware
 @app.middleware("http")
@@ -173,10 +105,11 @@ async def check_database_health(interval: int):
             logger.error(f"Exception during health check: {e}")
         await asyncio.sleep(interval)
 
-# Serve frontend
+# Serve the built Vite SPA. `vite build` emits dist/index.html plus hashed
+# assets under dist/assets; StaticFiles(html=True) serves index.html at "/".
 frontend_dir = Path(__file__).parent.parent / "frontend" / "dist"
 
-if frontend_dir.exists():
+if (frontend_dir / "index.html").exists():
     app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
 else:
     @app.get("/")
