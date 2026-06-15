@@ -29,8 +29,9 @@ import {
   YAxis,
 } from "recharts";
 import { processAll, RAW_FACILITIES, highlightDescription, type ProcessedFacility } from "@/lib/facilities-data";
-import { fetchOverview, type Overview } from "@/lib/api";
+import { fetchOverview, fetchHospitals, fetchReviewQueue, type Overview, type Hospital, type HospitalsResponse, type ReviewQueueResponse } from "@/lib/api";
 import { useFacilityOptions } from "@/lib/facility-options";
+import { Combobox } from "@/components/Combobox";
 import FacilityMap from "@/components/FacilityMap";
 import { useReviews } from "@/lib/review-store";
 import { Button } from "@/components/ui/button";
@@ -65,7 +66,6 @@ function App() {
   const processed = useMemo(() => processAll(RAW_FACILITIES), []);
   const [view, setView] = useState<View>("dashboard");
   const [selectedId, setSelectedId] = useState<string>(processed[0]?.raw.id ?? "");
-  const [filter, setFilter] = useState<QueueFilter>({});
   const reviewsApi = useReviews();
 
   const selected = processed.find((p) => p.raw.id === selectedId) ?? processed[0];
@@ -136,23 +136,8 @@ function App() {
 
         <main className="min-w-0 flex-1 space-y-6">
           {view === "dashboard" && <Dashboard />}
-          {view === "queue" && (
-            <Queue
-              processed={processed}
-              filter={filter}
-              setFilter={setFilter}
-              reviews={reviewsApi.reviews}
-              onOpen={openFacility}
-            />
-          )}
-          {view === "review" && selected && (
-            <FacilityReview
-              facility={selected}
-              processed={processed}
-              reviewsApi={reviewsApi}
-              onPick={setSelectedId}
-            />
-          )}
+          {view === "queue" && <Queue reviewsApi={reviewsApi} onOpen={openFacility} />}
+          {view === "review" && <FacilityReview reviewsApi={reviewsApi} />}
           {view === "audit" && selected && (
             <AuditView facility={selected} review={reviewsApi.get(selected.raw.id)} />
           )}
@@ -313,95 +298,89 @@ function MetricTile({
   );
 }
 
-// -------------------- QUEUE --------------------
+// -------------------- QUEUE (fed by final_facility_score_view) --------------------
+const riskBar = (p: "High" | "Medium" | "Low") =>
+  p === "High" ? "bg-rose-500" : p === "Medium" ? "bg-amber-500" : "bg-emerald-500";
+
 function Queue({
-  processed,
-  filter,
-  setFilter,
-  reviews,
+  reviewsApi,
   onOpen,
 }: {
-  processed: ProcessedFacility[];
-  filter: QueueFilter;
-  setFilter: (f: QueueFilter) => void;
-  reviews: Record<string, { status: string }>;
+  reviewsApi: ReturnType<typeof useReviews>;
   onOpen: (id: string) => void;
 }) {
-  // State options come from the warehouse table, shared across screens.
   const { states } = useFacilityOptions();
-  const specialties = unique(processed.flatMap((p) => p.raw.specialties));
+  const [stateFilter, setStateFilter] = useState<string | undefined>(undefined);
+  const [search, setSearch] = useState("");
+  const [data, setData] = useState<ReviewQueueResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const filtered = processed
-    .filter((p) => !filter.state || p.raw.state === filter.state)
-    .filter((p) => !filter.flag || p.scores.flags.includes(filter.flag))
-    .filter((p) => !filter.specialty || p.raw.specialties.includes(filter.specialty))
-    .filter(
-      (p) =>
-        !filter.search ||
-        p.raw.name.toLowerCase().includes(filter.search.toLowerCase()) ||
-        p.raw.city.toLowerCase().includes(filter.search.toLowerCase()),
-    )
-    .sort((a, b) => b.scores.priorityScore - a.scores.priorityScore);
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      fetchReviewQueue(stateFilter, search.trim() || undefined)
+        .then(setData)
+        .catch((e) => setError(e.message))
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [stateFilter, search]);
+
+  const rows = data?.rows ?? [];
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">What to review</h2>
         <p className="text-sm text-muted-foreground">
-          The records most likely to have problems are at the top. Showing {filtered.length} of {processed.length}.
+          Facilities with the highest risk score are at the top.{" "}
+          {data && `Showing ${rows.length} of ${data.count.toLocaleString()}${data.capped ? " (top 200)" : ""}.`}
         </p>
       </div>
 
       <Card>
         <CardContent className="flex flex-wrap items-center gap-3 pt-6">
+          <Combobox
+            className="w-[200px]"
+            options={states.map((s) => ({ value: s, label: s }))}
+            value={stateFilter}
+            onChange={setStateFilter}
+            placeholder="Any state"
+            searchPlaceholder="Search states…"
+            emptyText="No states found."
+            clearLabel="Any state"
+          />
           <div className="relative min-w-[220px] flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              value={filter.search ?? ""}
-              onChange={(e) => setFilter({ ...filter, search: e.target.value })}
-              placeholder="Search by name or city"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by facility name"
               className="pl-9"
             />
           </div>
-          <Select
-            value={filter.state ?? "_all"}
-            onValueChange={(v) => setFilter({ ...filter, state: v === "_all" ? undefined : v })}
-          >
-            <SelectTrigger className="w-[180px]"><SelectValue placeholder="State" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="_all">All states</SelectItem>
-              {states.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select
-            value={filter.specialty ?? "_all"}
-            onValueChange={(v) => setFilter({ ...filter, specialty: v === "_all" ? undefined : v })}
-          >
-            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Specialty" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="_all">All specialties</SelectItem>
-              {specialties.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select
-            value={filter.flag ?? "_all"}
-            onValueChange={(v) => setFilter({ ...filter, flag: v === "_all" ? undefined : v })}
-          >
-            <SelectTrigger className="w-[220px]"><SelectValue placeholder="What's wrong?" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="_all">Any issue</SelectItem>
-              {Object.entries(FLAG_LABEL).map(([k, v]) => (
-                <SelectItem key={k} value={k}>{v}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {(filter.state || filter.specialty || filter.flag || filter.search) && (
-            <Button variant="ghost" size="sm" onClick={() => setFilter({})}>
+          {(stateFilter || search) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setStateFilter(undefined);
+                setSearch("");
+              }}
+            >
               <Filter className="mr-1 h-3 w-3" /> Clear
             </Button>
           )}
         </CardContent>
       </Card>
+
+      {error && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {error}
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-0">
@@ -411,63 +390,81 @@ function Queue({
                 <tr>
                   <th className="px-4 py-3">Facility</th>
                   <th className="px-4 py-3">State</th>
-                  <th className="px-4 py-3">Trust score</th>
+                  <th className="px-4 py-3">Risk score</th>
                   <th className="px-4 py-3">What's wrong</th>
-                  <th className="px-4 py-3">Check when</th>
+                  <th className="px-4 py-3">Priority</th>
                   <th className="px-4 py-3">Your decision</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p) => {
-                  const status = reviews[p.raw.id]?.status ?? "pending";
+                {loading && rows.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                      Loading review queue…
+                    </td>
+                  </tr>
+                )}
+                {!loading && rows.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                      No facilities match these filters.
+                    </td>
+                  </tr>
+                )}
+                {rows.map((r) => {
+                  const status = reviewsApi.reviews[r.id]?.status ?? "pending";
                   return (
-                    <tr key={p.raw.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="px-4 py-3">
-                        <div className="font-medium">{p.raw.name}</div>
-                        <div className="text-xs text-muted-foreground">{p.raw.city} · {p.raw.id}</div>
+                        <div className="font-medium">{r.name}</div>
+                        <div className="text-xs text-muted-foreground">{r.id.slice(0, 8)}…</div>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{p.raw.state}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{r.state || "—"}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
                             <div
-                              className={cn("h-full", qualityBar(p.scores.qualityScore))}
-                              style={{ width: `${p.scores.qualityScore}%` }}
+                              className={cn("h-full", riskBar(r.priority))}
+                              style={{ width: `${Math.min(r.risk ?? 0, 100)}%` }}
                             />
                           </div>
-                          <span className="text-xs tabular-nums">{p.scores.qualityScore}</span>
+                          <span className="text-xs tabular-nums">{r.risk ?? "—"}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {p.scores.flags.slice(0, 3).map((f) => (
-                            <Badge key={f} variant="outline" className="gap-1 text-xs">
-                              <AlertTriangle className="h-3 w-3" /> {FLAG_LABEL[f] ?? f}
-                            </Badge>
-                          ))}
-                          {p.scores.flags.length === 0 && (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </div>
+                        {r.issues.length === 0 && !r.contradiction_explanation ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-1">
+                            {r.issues.slice(0, 2).map((iss, i) => (
+                              <Badge key={i} variant="outline" className="gap-1 text-xs">
+                                <AlertTriangle className="h-3 w-3" /> {iss}
+                              </Badge>
+                            ))}
+                            {r.issues.length > 2 && (
+                              <Badge variant="outline" className="text-xs">+{r.issues.length - 2}</Badge>
+                            )}
+                            {r.issues.length === 0 && r.contradiction_explanation && (
+                              <span className="text-xs text-muted-foreground">{r.contradiction_explanation}</span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
-                        <PriorityBadge priority={p.scores.priority} />
+                        <PriorityBadge priority={r.priority} />
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={status as "pending" | "approved" | "rejected"} />
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <Button size="sm" variant="outline" onClick={() => onOpen(p.raw.id)}>
+                        <Button size="sm" variant="outline" onClick={() => onOpen(r.id)}>
                           Review
                         </Button>
                       </td>
                     </tr>
                   );
                 })}
-                {filtered.length === 0 && (
-                  <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">No facilities match these filters.</td></tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -477,199 +474,218 @@ function Queue({
   );
 }
 
-// -------------------- FACILITY REVIEW --------------------
-function FacilityReview({
-  facility,
-  processed,
-  reviewsApi,
-  onPick,
-}: {
-  facility: ProcessedFacility;
-  processed: ProcessedFacility[];
-  reviewsApi: ReturnType<typeof useReviews>;
-  onPick: (id: string) => void;
-}) {
-  const review = reviewsApi.get(facility.raw.id);
-  const f = facility.raw;
-  // Facility picker options come from the warehouse table, shared across screens.
-  const { facilities: facilityOptions } = useFacilityOptions();
-  const sorted = [...processed].sort((a, b) => b.scores.priorityScore - a.scores.priorityScore);
-  const idx = sorted.findIndex((p) => p.raw.id === facility.raw.id);
-  const next = sorted[(idx + 1) % sorted.length];
-  const prev = sorted[(idx - 1 + sorted.length) % sorted.length];
+// -------------------- FACILITY REVIEW (map locator) --------------------
+const STATUS_LABELS: Record<string, string> = {
+  email_status: "Email",
+  office_phone_status: "Phone",
+  state_status: "State",
+  year_established_status: "Year",
+  address_line1_status: "Address",
+  pincode_status: "Pincode",
+  organization_name_status: "Name",
+};
+
+function FacilityReview({ reviewsApi }: { reviewsApi: ReturnType<typeof useReviews> }) {
+  const [city, setCity] = useState("");
+  const [data, setData] = useState<HospitalsResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      fetchHospitals(undefined, city.trim() || undefined)
+        .then((d) => {
+          setData(d);
+          setSelectedId((prev) =>
+            prev && d.facilities.some((f) => f.id === prev) ? prev : undefined,
+          );
+        })
+        .catch((e) => setError(e.message))
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => clearTimeout(handle);
+  }, [city]);
+
+  const selected = data?.facilities.find((f) => f.id === selectedId) ?? null;
+  const checks = data?.checks ?? 7;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">{f.name}</h2>
-          <p className="text-sm text-muted-foreground">
-            {f.city}, {f.state} · {f.id} · Quality {facility.scores.qualityScore}/100
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => onPick(prev.raw.id)}>← Prev</Button>
-          <Select value="" onValueChange={onPick}>
-            <SelectTrigger className="w-[260px]"><SelectValue placeholder="Jump to a facility…" /></SelectTrigger>
-            <SelectContent>
-              {facilityOptions.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}{p.state ? ` · ${p.state}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="sm" onClick={() => onPick(next.raw.id)}>Next →</Button>
-        </div>
+      <div>
+        <h2 className="text-2xl font-semibold tracking-tight">Check a facility</h2>
+        <p className="text-sm text-muted-foreground">
+          Search by city, then click a hospital on the map to review its record.
+        </p>
       </div>
 
-      {facility.scores.flags.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {facility.scores.flags.map((flag) => (
-            <Badge key={flag} variant="outline" className="gap-1 border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-              <AlertTriangle className="h-3 w-3" /> {FLAG_LABEL[flag] ?? flag}
-            </Badge>
-          ))}
+      <Card>
+        <CardContent className="flex flex-wrap items-center gap-3 pt-6">
+          <div className="relative min-w-[240px] flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="Search by city"
+              className="pl-9"
+            />
+          </div>
+          {city && (
+            <Button variant="ghost" size="sm" onClick={() => setCity("")}>
+              <Filter className="mr-1 h-3 w-3" /> Clear
+            </Button>
+          )}
+          <div className="ml-auto text-sm text-muted-foreground">
+            {loading ? "Loading…" : `${data?.count ?? 0}${data?.capped ? "+" : ""} hospitals on the map`}
+          </div>
+        </CardContent>
+      </Card>
+
+      {error && (
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {error}
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* LEFT */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">What the record says</CardTitle>
-            <CardDescription>The information already on file for this facility</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 text-sm">
-            <DetailRow label="Address">
-              {f.city}, {f.state}
-              <div className="text-xs text-muted-foreground">Postcode: {f.postcode ?? <span className="text-rose-600">missing</span>}</div>
-            </DetailRow>
-            <DetailRow label="Coordinates">
-              {f.latitude != null ? `${f.latitude.toFixed(4)}, ${f.longitude?.toFixed(4)}` : <span className="text-rose-600">missing</span>}
-            </DetailRow>
-            <DetailRow label="Specialties">
-              <div className="flex flex-wrap gap-1">
-                {unique(f.specialties).map((s) => (
-                  <Badge key={s} variant="secondary">{s}</Badge>
-                ))}
-                {f.specialties.length === 0 && <span className="text-muted-foreground">none</span>}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3">
+          <CardContent className="pt-6">
+            {data && data.facilities.length > 0 ? (
+              <FacilityMap
+                points={data.facilities}
+                checks={checks}
+                height={520}
+                onSelect={setSelectedId}
+                selectedId={selectedId}
+                fitToPoints
+              />
+            ) : (
+              <div className="flex h-[520px] items-center justify-center rounded-md border bg-muted/30 text-sm text-muted-foreground">
+                {loading ? "Loading hospitals…" : "No hospitals match these filters."}
               </div>
-            </DetailRow>
-            <DetailRow label="Source">
-              {f.source_urls.length > 0 ? (
-                f.source_urls.map((u) => (
-                  <a key={u} href={u} className="block truncate text-xs text-blue-600 hover:underline" target="_blank" rel="noreferrer">{u}</a>
-                ))
-              ) : (
-                <span className="text-muted-foreground">none</span>
-              )}
-            </DetailRow>
-            <Separator />
-            <div>
-              <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Where it is on the map</p>
-              <SimpleMap processed={[facility]} compact />
-            </div>
-            <div className="space-y-2 rounded-md border bg-muted/40 p-3">
-              <p className="text-xs font-medium uppercase text-muted-foreground">Why we trust (or don't trust) this record</p>
-              <BreakdownRow label="How much is filled in" value={facility.scores.completeness} />
-              <BreakdownRow label="Address matches the state" value={facility.scores.geoConsistency} />
-              <BreakdownRow label="Services backed by description" value={
-                avg(facility.capabilities.filter(c => c.strength !== "Missing").map(c => c.confidence))
-              } />
-              {facility.geoIssues.map((g) => (
-                <p key={g} className="text-xs text-amber-700">⚠ {g}</p>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* RIGHT */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">What the description actually says</CardTitle>
-            <CardDescription>Words that prove (or fail to prove) the listed services</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <HighlightedDescription facility={facility} />
-
-            <div className="space-y-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Services we found in the description
-              </p>
-              {facility.capabilities.filter((c) => c.strength !== "Missing").length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  The description is too short or vague to confirm any specific service.
-                </p>
-              ) : (
-                <CapabilityGroups facility={facility} />
-              )}
-            </div>
-
-            {facility.scores.contradictions.length > 0 && (
-              <ContradictionsPanel facility={facility} />
             )}
           </CardContent>
         </Card>
-      </div>
 
-      {/* Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Your decision</CardTitle>
-          <CardDescription>Saved automatically, with a full history you can review later.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        <div className="lg:col-span-2">
+          {selected ? (
+            <FacilityDetail key={selected.id} facility={selected} checks={checks} reviewsApi={reviewsApi} />
+          ) : (
+            <Card className="h-full">
+              <CardContent className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 py-10 text-center text-sm text-muted-foreground">
+                <MapPin className="h-6 w-6" />
+                Click a hospital on the map to see its details.
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FacilityDetail({
+  facility,
+  checks,
+  reviewsApi,
+}: {
+  facility: Hospital;
+  checks: number;
+  reviewsApi: ReturnType<typeof useReviews>;
+}) {
+  const review = reviewsApi.get(facility.id);
+  const ratio = checks ? facility.good / checks : 0;
+  const toneClass = ratio >= 0.85 ? "text-emerald-600" : ratio >= 0.5 ? "text-amber-600" : "text-rose-600";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{facility.name}</CardTitle>
+        <CardDescription>
+          {[facility.city, facility.state].filter(Boolean).join(", ") || "—"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <div className="grid grid-cols-[80px_1fr] gap-y-1.5">
+          <span className="text-xs font-medium uppercase text-muted-foreground">Address</span>
+          <span>{[facility.address, facility.zipcode].filter(Boolean).join(" · ") || "—"}</span>
+          <span className="text-xs font-medium uppercase text-muted-foreground">Phone</span>
+          <span>{facility.phone || "—"}</span>
+          <span className="text-xs font-medium uppercase text-muted-foreground">Email</span>
+          <span className="truncate">{facility.email || "—"}</span>
+          <span className="text-xs font-medium uppercase text-muted-foreground">Website</span>
+          <span className="truncate">
+            {facility.website ? (
+              <a href={facility.website} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                {facility.website}
+              </a>
+            ) : (
+              "—"
+            )}
+          </span>
+          <span className="text-xs font-medium uppercase text-muted-foreground">Coords</span>
+          <span>{facility.lat.toFixed(4)}, {facility.lng.toFixed(4)}</span>
+        </div>
+
+        <Separator />
+
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Data quality</p>
+            <span className={cn("text-xs font-medium", toneClass)}>
+              {facility.good}/{checks} checks valid
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {Object.entries(facility.statuses).map(([k, ok]) => (
+              <Badge
+                key={k}
+                variant="outline"
+                className={cn(
+                  "gap-1",
+                  ok
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                    : "border-rose-300 bg-rose-50 text-rose-800",
+                )}
+              >
+                {ok ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
+                {STATUS_LABELS[k] ?? k}
+              </Badge>
+            ))}
+          </div>
+        </div>
+
+        <Separator />
+
+        <div>
+          <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Your decision</p>
           <div className="flex flex-wrap gap-2">
             <Button
-              onClick={() => reviewsApi.setStatus(f.id, "approved")}
-              className={cn(review.status === "approved" && "ring-2 ring-emerald-500")}
+              size="sm"
               variant={review.status === "approved" ? "default" : "outline"}
+              onClick={() => reviewsApi.setStatus(facility.id, "approved")}
             >
               <CheckCircle2 className="mr-1 h-4 w-4" /> Looks good
             </Button>
             <Button
-              onClick={() => reviewsApi.setStatus(f.id, "rejected")}
+              size="sm"
               variant={review.status === "rejected" ? "destructive" : "outline"}
+              onClick={() => reviewsApi.setStatus(facility.id, "rejected")}
             >
-              <XCircle className="mr-1 h-4 w-4" /> Don't use this record
-            </Button>
-            <Button variant="outline" onClick={() => reviewsApi.setStatus(f.id, "pending")}>
-              I'll decide later
+              <XCircle className="mr-1 h-4 w-4" /> Reject
             </Button>
           </div>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <label className="text-xs font-medium uppercase text-muted-foreground">Fix the name</label>
-              <Input
-                defaultValue={review.overrides.name ?? f.name}
-                onBlur={(e) => e.target.value !== f.name && reviewsApi.setOverride(f.id, "name", e.target.value)}
-              />
-              <p className="mt-1 text-xs text-muted-foreground">Only edit if the original is wrong or misspelled.</p>
-            </div>
-            <div>
-              <label className="text-xs font-medium uppercase text-muted-foreground">Fix the postcode</label>
-              <Input
-                defaultValue={review.overrides.postcode ?? f.postcode ?? ""}
-                placeholder="e.g. 400001"
-                onBlur={(e) => reviewsApi.setOverride(f.id, "postcode", e.target.value)}
-              />
-              <p className="mt-1 text-xs text-muted-foreground">6 digits. Check it on the envelope or the facility website.</p>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium uppercase text-muted-foreground">Your notes (optional)</label>
-            <Textarea
-              defaultValue={review.notes}
-              placeholder="Add a short note explaining your decision — e.g. 'Confirmed on hospital website'"
-              onBlur={(e) => reviewsApi.setNote(f.id, e.target.value)}
-            />
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+          <Textarea
+            className="mt-3"
+            defaultValue={review.notes}
+            placeholder="Add a note…"
+            onBlur={(e) => reviewsApi.setNote(facility.id, e.target.value)}
+          />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
