@@ -180,3 +180,22 @@ from
       ON b.unique_id = a.Reference_ID
     left outer join workspace.l1_facility_info.facility_readiness_gold C
       ON c.unique_id = Reference_ID
+
+WITH facility AS (
+  SELECT
+    Reference_ID                 AS facility_id,
+    ANY_VALUE(Organization_name) AS name,
+    ANY_VALUE(State)             AS state
+  FROM workspace.l1_facility_info.final_facility_score_view
+  GROUP BY Reference_ID
+)
+SELECT
+  c.contradiction_id                                     AS id,
+  c.facility_id                                          AS facility_id,
+  f.name                                                 AS name,
+  f.state                                                AS state,
+  c.confidence                                           AS severity,
+  concat_ws(' — ', c.contradiction_code, c.explanation)  AS whats_wrong,
+  c.severity                                             AS priority
+FROM workspace.results.facility_contradictions c
+JOIN facility f ON f.facility_id = c.facility_id

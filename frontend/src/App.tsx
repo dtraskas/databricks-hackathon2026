@@ -29,7 +29,7 @@ import {
   YAxis,
 } from "recharts";
 import { processAll, RAW_FACILITIES, highlightDescription, type ProcessedFacility } from "@/lib/facilities-data";
-import { fetchOverview, fetchHospitals, fetchReviewQueue, type Overview, type Hospital, type HospitalsResponse, type ReviewQueueResponse } from "@/lib/api";
+import { fetchOverview, fetchHospitals, fetchHospital, fetchReviewQueue, saveDecision, type Overview, type Hospital, type HospitalsResponse, type ReviewQueueResponse } from "@/lib/api";
 import { useFacilityOptions } from "@/lib/facility-options";
 import { Combobox } from "@/components/Combobox";
 import FacilityMap from "@/components/FacilityMap";
@@ -64,7 +64,13 @@ const NAV: Array<{ id: View; label: string; icon: typeof LayoutDashboard; hint: 
 function App() {
   const processed = useMemo(() => processAll(RAW_FACILITIES), []);
   const [view, setView] = useState<View>("dashboard");
+  const [reviewFacilityId, setReviewFacilityId] = useState<string | undefined>(undefined);
   const reviewsApi = useReviews();
+
+  const openInReview = (id: string) => {
+    setReviewFacilityId(id);
+    setView("review");
+  };
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -124,8 +130,10 @@ function App() {
 
         <main className="min-w-0 flex-1 space-y-6">
           {view === "dashboard" && <Dashboard />}
-          {view === "queue" && <Queue reviewsApi={reviewsApi} onOpen={() => setView("review")} />}
-          {view === "review" && <FacilityReview reviewsApi={reviewsApi} />}
+          {view === "queue" && <Queue reviewsApi={reviewsApi} onOpen={openInReview} />}
+          {view === "review" && (
+            <FacilityReview reviewsApi={reviewsApi} initialFacilityId={reviewFacilityId} />
+          )}
         </main>
       </div>
     </div>
@@ -494,12 +502,21 @@ const STATUS_LABELS: Record<string, string> = {
   organization_name_status: "Name",
 };
 
-function FacilityReview({ reviewsApi }: { reviewsApi: ReturnType<typeof useReviews> }) {
+function FacilityReview({
+  reviewsApi,
+  initialFacilityId,
+}: {
+  reviewsApi: ReturnType<typeof useReviews>;
+  initialFacilityId?: string;
+}) {
   const [city, setCity] = useState("");
   const [data, setData] = useState<HospitalsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  // Facility deep-linked from the queue's Review button; may live outside the
+  // current city's hospital list, so we fetch it on its own.
+  const [injected, setInjected] = useState<Hospital | null>(null);
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -509,17 +526,48 @@ function FacilityReview({ reviewsApi }: { reviewsApi: ReturnType<typeof useRevie
         .then((d) => {
           setData(d);
           setSelectedId((prev) =>
-            prev && d.facilities.some((f) => f.id === prev) ? prev : undefined,
+            prev && (d.facilities.some((f) => f.id === prev) || injected?.id === prev)
+              ? prev
+              : undefined,
           );
         })
         .catch((e) => setError(e.message))
         .finally(() => setLoading(false));
     }, 300);
     return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [city]);
 
-  const selected = data?.facilities.find((f) => f.id === selectedId) ?? null;
+  // Arriving from the queue: load that facility's record and select it.
+  useEffect(() => {
+    if (!initialFacilityId) return;
+    setSelectedId(initialFacilityId);
+    fetchHospital(initialFacilityId)
+      .then((f) => setInjected(f))
+      .catch((e) => setError(e.message));
+  }, [initialFacilityId]);
+
   const checks = data?.checks ?? 7;
+  const selected =
+    (injected?.id === selectedId ? injected : null) ??
+    data?.facilities.find((f) => f.id === selectedId) ??
+    null;
+
+  // Map markers: the city's hospitals, plus the deep-linked facility (if it has
+  // coordinates and isn't already in the list).
+  const mapPoints = useMemo(() => {
+    const base = data?.facilities ?? [];
+    const extra =
+      injected &&
+      injected.lat != null &&
+      injected.lng != null &&
+      !base.some((f) => f.id === injected.id)
+        ? [injected]
+        : [];
+    return [...extra, ...base].filter(
+      (f): f is Hospital & { lat: number; lng: number } => f.lat != null && f.lng != null,
+    );
+  }, [data, injected]);
 
   return (
     <div className="space-y-4">
@@ -561,9 +609,9 @@ function FacilityReview({ reviewsApi }: { reviewsApi: ReturnType<typeof useRevie
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-3">
           <CardContent className="pt-6">
-            {data && data.facilities.length > 0 ? (
+            {mapPoints.length > 0 ? (
               <FacilityMap
-                points={data.facilities}
+                points={mapPoints}
                 checks={checks}
                 height={520}
                 onSelect={setSelectedId}
@@ -608,6 +656,24 @@ function FacilityDetail({
   const ratio = checks ? facility.good / checks : 0;
   const toneClass = ratio >= 0.85 ? "text-emerald-600" : ratio >= 0.5 ? "text-amber-600" : "text-rose-600";
 
+  // Live note text, so a decision is saved with whatever's currently typed.
+  const [notes, setNotes] = useState(review.notes);
+  const [saving, setSaving] = useState<null | "approved" | "rejected">(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const decide = async (decision: "approved" | "rejected") => {
+    reviewsApi.setStatus(facility.id, decision); // local history + UI
+    setSaving(decision);
+    setSaveError(null);
+    try {
+      await saveDecision(facility.id, decision, notes);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed to save decision");
+    } finally {
+      setSaving(null);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -635,7 +701,11 @@ function FacilityDetail({
             )}
           </span>
           <span className="text-xs font-medium uppercase text-muted-foreground">Coords</span>
-          <span>{facility.lat.toFixed(4)}, {facility.lng.toFixed(4)}</span>
+          <span>
+            {facility.lat != null && facility.lng != null
+              ? `${facility.lat.toFixed(4)}, ${facility.lng.toFixed(4)}`
+              : "—"}
+          </span>
           <span className="text-xs font-medium uppercase text-muted-foreground">Ref ID</span>
           <span className="truncate font-mono text-xs">{facility.id}</span>
         </div>
@@ -672,28 +742,40 @@ function FacilityDetail({
 
         <div>
           <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Your decision</p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant={review.status === "approved" ? "default" : "outline"}
-              onClick={() => reviewsApi.setStatus(facility.id, "approved")}
-            >
-              <CheckCircle2 className="mr-1 h-4 w-4" /> Looks good
-            </Button>
-            <Button
-              size="sm"
-              variant={review.status === "rejected" ? "destructive" : "outline"}
-              onClick={() => reviewsApi.setStatus(facility.id, "rejected")}
-            >
-              <XCircle className="mr-1 h-4 w-4" /> Reject
-            </Button>
-          </div>
           <Textarea
-            className="mt-3"
-            defaultValue={review.notes}
+            className="mb-3"
+            value={notes}
             placeholder="Add a note…"
+            onChange={(e) => setNotes(e.target.value)}
             onBlur={(e) => reviewsApi.setNote(facility.id, e.target.value)}
           />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              disabled={saving !== null}
+              variant={review.status === "approved" ? "default" : "outline"}
+              onClick={() => decide("approved")}
+            >
+              <CheckCircle2 className="mr-1 h-4 w-4" />
+              {saving === "approved" ? "Saving…" : "Looks good"}
+            </Button>
+            <Button
+              size="sm"
+              disabled={saving !== null}
+              variant={review.status === "rejected" ? "destructive" : "outline"}
+              onClick={() => decide("rejected")}
+            >
+              <XCircle className="mr-1 h-4 w-4" />
+              {saving === "rejected" ? "Saving…" : "Reject"}
+            </Button>
+          </div>
+          {saveError ? (
+            <p className="mt-2 text-xs text-rose-600">{saveError}</p>
+          ) : (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Decisions are saved with the facility, date &amp; time, and your note.
+            </p>
+          )}
         </div>
 
         <Separator />

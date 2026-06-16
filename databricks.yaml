@@ -4,6 +4,8 @@ bundle:
 sync:
   include:
     - frontend/dist/**
+  exclude:
+    - bootstrap/**
 
 resources:
   apps:

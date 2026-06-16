@@ -11,7 +11,7 @@ import os
 from typing import Any
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.sql import StatementState
+from databricks.sdk.service.sql import StatementParameterListItem, StatementState
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +28,26 @@ def _ws() -> WorkspaceClient:
     return _client
 
 
-def query(sql: str) -> list[dict[str, Any]]:
+def query(sql: str, parameters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Run `sql` on the warehouse and return all rows as dicts.
+
+    Pass `parameters` to use named markers (`:name`) in `sql` — values are bound
+    server-side, so callers never string-format untrusted input into the query.
 
     Blocking — call it from a worker thread (e.g. asyncio.to_thread) so the
     event loop stays free.
     """
     se = _ws().statement_execution
+    param_list = (
+        [StatementParameterListItem(name=k, value=None if v is None else str(v))
+         for k, v in parameters.items()]
+        if parameters
+        else None
+    )
     resp = se.execute_statement(
         warehouse_id=WAREHOUSE_ID,
         statement=sql,
+        parameters=param_list,
         wait_timeout="50s",  # API max; large scans usually finish well within
     )
 

@@ -206,6 +206,40 @@ def get_options() -> dict:
     }
 
 
+def _facility_record(r: dict) -> dict:
+    """Shape one cached facility row into the detail-card record used by the UI."""
+    coords = _coords(r)
+    statuses = {c: _is_valid(r.get(c)) for c in STATUS_COLS}
+    return {
+        "id": r["id"],
+        "name": (r.get("name") or "").strip() or "(unnamed)",
+        "state": (r.get("state") or "").strip(),
+        "city": (r.get("city") or "").strip(),
+        "address": (r.get("address") or "").strip(),
+        "zipcode": (r.get("zipcode") or "").strip(),
+        "phone": (r.get("phone") or "").strip(),
+        "email": (r.get("email") or "").strip(),
+        "website": (r.get("website") or "").strip(),
+        "lat": coords[0] if coords else None,
+        "lng": coords[1] if coords else None,
+        "good": sum(statuses.values()),
+        "statuses": statuses,
+    }
+
+
+def get_hospital(facility_id: str) -> dict:
+    """One facility's detail record by Reference_ID, for deep-linking from the queue.
+
+    Unlike get_hospitals this isn't limited to mappable hospitals — the review
+    queue can point at any facility — so coordinates may be absent (lat/lng null).
+    """
+    fid = (facility_id or "").strip()
+    for r in _facilities():
+        if r.get("id") == fid:
+            return {"facility": _facility_record(r)}
+    return {"facility": None}
+
+
 def get_hospitals(state: str | None = None, city: str | None = None) -> dict:
     """Mappable hospitals, optionally narrowed by state (exact) and city (contains).
 

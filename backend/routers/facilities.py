@@ -5,8 +5,10 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
 
-from backend.services.facilities import get_hospitals, get_options, get_overview
+from backend.services.decisions import save_decision
+from backend.services.facilities import get_hospital, get_hospitals, get_options, get_overview
 from backend.services.review_queue import get_review_queue
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,19 @@ async def hospitals(state: str | None = None, city: str | None = None) -> dict[s
         )
 
 
+@router.get("/hospital")
+async def hospital(id: str) -> dict[str, Any]:
+    """One facility's detail record by Reference_ID (deep-link from the queue)."""
+    try:
+        return await asyncio.to_thread(get_hospital, id)
+    except Exception as e:
+        logger.error(f"Failed to load facility {id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to load facility: {e}",
+        )
+
+
 @router.get("/review-queue")
 async def review_queue(state: str | None = None, search: str | None = None) -> dict[str, Any]:
     """Highest-risk facilities to review, from final_facility_score_view."""
@@ -64,4 +79,27 @@ async def review_queue(state: str | None = None, search: str | None = None) -> d
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to load review queue: {e}",
+        )
+
+
+class DecisionIn(BaseModel):
+    facility_id: str
+    decision: str  # "approved" | "rejected"
+    notes: str | None = None
+
+
+@router.post("/decisions")
+async def record_decision(body: DecisionIn) -> dict[str, Any]:
+    """Persist a reviewer's approve/reject decision (with notes) for a facility."""
+    try:
+        return await asyncio.to_thread(
+            save_decision, body.facility_id, body.decision, body.notes
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to save decision: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to save decision: {e}",
         )
