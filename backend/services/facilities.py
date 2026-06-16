@@ -16,7 +16,7 @@ from backend.services.warehouse import query
 
 logger = logging.getLogger(__name__)
 
-TABLE = "datalake_dev.l1_facility_info.facility_core_details_enriched"
+TABLE = "workspace.l1_facility_info.facility_core_details_enriched"
 
 # Every per-field data-quality status column in the table.
 STATUS_COLS = [

@@ -16,7 +16,7 @@ from databricks.sdk.service.sql import StatementState
 logger = logging.getLogger(__name__)
 
 # SQL warehouse that backs ad-hoc queries. Override with DATABRICKS_WAREHOUSE_ID.
-WAREHOUSE_ID = os.environ.get("DATABRICKS_WAREHOUSE_ID", "f482eb72e5ec6dbd")
+WAREHOUSE_ID = os.environ.get("DATABRICKS_WAREHOUSE_ID", "09dcc4e2f84586bd")
 
 _client: WorkspaceClient | None = None
 

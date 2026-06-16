@@ -6,8 +6,9 @@ Start hackathon2026-app locally with backend and optionally frontend in dev mode
 Monitors processes and provides a single entry point.
 
 Usage:
-    uv run python -m scripts.start_app              # backend + built frontend
-    uv run python -m scripts.start_app --dev        # backend + frontend dev server
+    uv run python -m scripts.start_app                    # backend + built frontend
+    uv run python -m scripts.start_app --dev              # backend + frontend dev server
+    uv run python -m scripts.start_app --profile nitin    # use a specific Databricks profile
     uv run python -m scripts.start_app --backend-port 9000
 """
 
@@ -59,7 +60,8 @@ class ProcessManager:
                 continue
         raise RuntimeError(f"No available ports in range {start}-{start + max_attempts}")
 
-    def start(self, name: str, cmd: List[str], cwd: Optional[Path] = None):
+    def start(self, name: str, cmd: List[str], cwd: Optional[Path] = None,
+              env: Optional[dict] = None):
         """Start a subprocess and monitor its output."""
         LOGS_DIR.mkdir(exist_ok=True)
         log_file = LOGS_DIR / f"{name}.log"
@@ -70,6 +72,7 @@ class ProcessManager:
         proc = subprocess.Popen(
             cmd,
             cwd=cwd,
+            env=env,  # None → inherit the parent environment
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -135,6 +138,22 @@ class ProcessManager:
                     proc.wait()
 
 
+def list_profiles() -> list[str]:
+    """Return configured Databricks CLI profile names (empty if CLI unavailable)."""
+    try:
+        result = subprocess.run(
+            ["databricks", "auth", "profiles"], capture_output=True, text=True
+        )
+    except FileNotFoundError:
+        return []
+    names = []
+    for line in result.stdout.splitlines()[1:]:  # skip the header row
+        parts = line.split()
+        if parts:
+            names.append(parts[0])
+    return names
+
+
 def main():
     parser = argparse.ArgumentParser(description="Start hackathon2026-app locally")
     parser.add_argument(
@@ -159,6 +178,11 @@ def main():
         action="store_true",
         help="Enable auto-reload for backend"
     )
+    parser.add_argument(
+        "--profile",
+        help="Databricks CLI profile for the backend (sets DATABRICKS_CONFIG_PROFILE). "
+             "Defaults to your existing auth (DEFAULT profile).",
+    )
     args = parser.parse_args()
 
     print("\n" + "=" * 60)
@@ -167,9 +191,30 @@ def main():
 
     manager = ProcessManager()
 
+    # Resolve the Databricks profile for the backend, if requested.
+    backend_env = None
+    if args.profile:
+        profiles = list_profiles()
+        if profiles and args.profile not in profiles:
+            print(f"[ERROR] Profile '{args.profile}' not found.")
+            print(f"        Available profiles: {', '.join(profiles) or '(none)'}")
+            print(f"        Create one with: databricks auth login --host <url> --profile {args.profile}")
+            sys.exit(1)
+        backend_env = {**os.environ, "DATABRICKS_CONFIG_PROFILE": args.profile}
+        print(f"[*] Backend Databricks profile: {args.profile}")
+
     backend_port = manager.find_available_port(args.backend_port)
     if backend_port != args.backend_port:
         print(f"[!] Port {args.backend_port} in use, using {backend_port}")
+
+    # In built mode the backend serves frontend/dist — build it if it's missing
+    # (dist is a gitignored build artifact, so it won't exist on a fresh checkout).
+    if not args.dev:
+        dist_index = PROJECT_ROOT / "frontend" / "dist" / "index.html"
+        if not dist_index.exists():
+            print("[*] frontend/dist not found — building frontend...")
+            subprocess.run(["npm", "install"], cwd=PROJECT_ROOT / "frontend", check=True)
+            subprocess.run(["npm", "run", "build"], cwd=PROJECT_ROOT / "frontend", check=True)
 
     # Start backend
     backend_cmd = [
@@ -181,7 +226,7 @@ def main():
     if args.reload:
         backend_cmd.append("--reload")
 
-    manager.start("backend", backend_cmd)
+    manager.start("backend", backend_cmd, env=backend_env)
 
     # Optionally start frontend dev server
     if args.dev:
@@ -214,6 +259,7 @@ def main():
     print("=" * 60)
     print(f"\n  Backend:  http://localhost:{backend_port}")
     print(f"  Docs:     http://localhost:{backend_port}/docs")
+    print(f"  Profile:  {args.profile or 'DEFAULT (existing auth)'}")
     if args.dev:
         print(f"  Frontend: http://localhost:{frontend_port}")
     else:

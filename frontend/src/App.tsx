@@ -46,7 +46,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 
-type View = "dashboard" | "queue" | "review" | "audit";
+type View = "dashboard" | "queue" | "review";
 
 interface QueueFilter {
   flag?: string;
@@ -58,22 +58,13 @@ interface QueueFilter {
 const NAV: Array<{ id: View; label: string; icon: typeof LayoutDashboard; hint: string }> = [
   { id: "dashboard", label: "Overview", icon: LayoutDashboard, hint: "How healthy is the data overall?" },
   { id: "queue", label: "What to review", icon: ClipboardList, hint: "Records that need a human check" },
-  { id: "review", label: "Check a facility", icon: ShieldCheck, hint: "See evidence and approve or reject" },
-  { id: "audit", label: "History", icon: History, hint: "Everything that has been changed" },
+  { id: "review", label: "Check a facility", icon: ShieldCheck, hint: "Locate a hospital, review it, and see its history" },
 ];
 
 function App() {
   const processed = useMemo(() => processAll(RAW_FACILITIES), []);
   const [view, setView] = useState<View>("dashboard");
-  const [selectedId, setSelectedId] = useState<string>(processed[0]?.raw.id ?? "");
   const reviewsApi = useReviews();
-
-  const selected = processed.find((p) => p.raw.id === selectedId) ?? processed[0];
-
-  const openFacility = (id: string) => {
-    setSelectedId(id);
-    setView("review");
-  };
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -84,15 +75,12 @@ function App() {
           </div>
           <div className="flex-1">
             <h1 className="text-base font-semibold tracking-tight">
-              Healthcare Data Quality Studio
+              Data Beat Monitor
             </h1>
             <p className="text-xs text-muted-foreground">
               Check this list of {processed.length} hospitals and clinics in India before using it for planning.
             </p>
-          </div>
-          <Badge variant="outline" className="gap-1">
-            <Database className="h-3 w-3" /> Demo dataset
-          </Badge>
+          </div>          
         </div>
       </header>
 
@@ -136,11 +124,8 @@ function App() {
 
         <main className="min-w-0 flex-1 space-y-6">
           {view === "dashboard" && <Dashboard />}
-          {view === "queue" && <Queue reviewsApi={reviewsApi} onOpen={openFacility} />}
+          {view === "queue" && <Queue reviewsApi={reviewsApi} onOpen={() => setView("review")} />}
           {view === "review" && <FacilityReview reviewsApi={reviewsApi} />}
-          {view === "audit" && selected && (
-            <AuditView facility={selected} review={reviewsApi.get(selected.raw.id)} />
-          )}
         </main>
       </div>
     </div>
@@ -335,7 +320,7 @@ function Queue({
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">What to review</h2>
         <p className="text-sm text-muted-foreground">
-          Facilities with the highest risk score are at the top.{" "}
+          Facilities with contradictions, highest priority and severity first.{" "}
           {data && `Showing ${rows.length} of ${data.count.toLocaleString()}${data.capped ? " (top 200)" : ""}.`}
         </p>
       </div>
@@ -390,7 +375,7 @@ function Queue({
                 <tr>
                   <th className="px-4 py-3">Facility</th>
                   <th className="px-4 py-3">State</th>
-                  <th className="px-4 py-3">Risk score</th>
+                  <th className="px-4 py-3">Severity</th>
                   <th className="px-4 py-3">What's wrong</th>
                   <th className="px-4 py-3">Priority</th>
                   <th className="px-4 py-3">Your decision</th>
@@ -412,58 +397,76 @@ function Queue({
                     </td>
                   </tr>
                 )}
-                {rows.map((r) => {
-                  const status = reviewsApi.reviews[r.id]?.status ?? "pending";
-                  return (
-                    <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="px-4 py-3">
-                        <div className="font-medium">{r.name}</div>
-                        <div className="text-xs text-muted-foreground">{r.id.slice(0, 8)}…</div>
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{r.state || "—"}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className={cn("h-full", riskBar(r.priority))}
-                              style={{ width: `${Math.min(r.risk ?? 0, 100)}%` }}
-                            />
-                          </div>
-                          <span className="text-xs tabular-nums">{r.risk ?? "—"}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {r.issues.length === 0 && !r.contradiction_explanation ? (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        ) : (
-                          <div className="flex flex-wrap items-center gap-1">
-                            {r.issues.slice(0, 2).map((iss, i) => (
-                              <Badge key={i} variant="outline" className="gap-1 text-xs">
-                                <AlertTriangle className="h-3 w-3" /> {iss}
-                              </Badge>
-                            ))}
-                            {r.issues.length > 2 && (
-                              <Badge variant="outline" className="text-xs">+{r.issues.length - 2}</Badge>
-                            )}
-                            {r.issues.length === 0 && r.contradiction_explanation && (
-                              <span className="text-xs text-muted-foreground">{r.contradiction_explanation}</span>
-                            )}
-                          </div>
+                {rows.flatMap((r) => {
+                  const status = reviewsApi.reviews[r.facility_id]?.status ?? "pending";
+                  const conts = r.contradictions.length ? r.contradictions : [null];
+                  const n = conts.length;
+                  return conts.map((c, idx) => {
+                    const sevPct = Math.round((c?.severity ?? 0) * 100);
+                    return (
+                      <tr
+                        key={c ? c.id : r.id}
+                        className={cn(
+                          "hover:bg-muted/30",
+                          idx === n - 1 ? "border-b" : "border-b border-border/30",
                         )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <PriorityBadge priority={r.priority} />
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={status as "pending" | "approved" | "rejected"} />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Button size="sm" variant="outline" onClick={() => onOpen(r.id)}>
-                          Review
-                        </Button>
-                      </td>
-                    </tr>
-                  );
+                      >
+                        {idx === 0 && (
+                          <td rowSpan={n} className="px-4 py-3 align-top">
+                            <div className="font-medium">{r.name}</div>
+                            <div className="text-xs text-muted-foreground">{r.facility_id.slice(0, 8)}…</div>
+                          </td>
+                        )}
+                        {idx === 0 && (
+                          <td rowSpan={n} className="px-4 py-3 align-top text-muted-foreground">
+                            {r.state || "—"}
+                          </td>
+                        )}
+                        <td className="px-4 py-3 align-top">
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className={cn("h-full", c ? riskBar(c.priority) : "")}
+                                style={{ width: `${sevPct}%` }}
+                              />
+                            </div>
+                            <span className="text-xs tabular-nums">
+                              {c?.severity != null ? sevPct + "%" : "—"}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="max-w-[420px] px-4 py-3 align-top">
+                          {c ? (
+                            <div className="flex gap-1.5 text-xs text-muted-foreground">
+                              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+                              <span>{c.whats_wrong}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 align-top">
+                          {c ? (
+                            <PriorityBadge priority={c.priority} />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        {idx === 0 && (
+                          <td rowSpan={n} className="px-4 py-3 align-top">
+                            <StatusBadge status={status as "pending" | "approved" | "rejected"} />
+                          </td>
+                        )}
+                        {idx === 0 && (
+                          <td rowSpan={n} className="px-4 py-3 align-top text-right">
+                            <Button size="sm" variant="outline" onClick={() => onOpen(r.facility_id)}>
+                              Review
+                            </Button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  });
                 })}
               </tbody>
             </table>
@@ -627,6 +630,8 @@ function FacilityDetail({
           </span>
           <span className="text-xs font-medium uppercase text-muted-foreground">Coords</span>
           <span>{facility.lat.toFixed(4)}, {facility.lng.toFixed(4)}</span>
+          <span className="text-xs font-medium uppercase text-muted-foreground">Ref ID</span>
+          <span className="truncate font-mono text-xs">{facility.id}</span>
         </div>
 
         <Separator />
@@ -684,136 +689,35 @@ function FacilityDetail({
             onBlur={(e) => reviewsApi.setNote(facility.id, e.target.value)}
           />
         </div>
+
+        <Separator />
+
+        <div>
+          <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
+            History — every change made
+          </p>
+          {review.history.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No changes yet. Approving, rejecting, or adding a note will be logged here.
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {[...review.history].reverse().map((h, i) => (
+                <li key={i} className="flex items-start justify-between gap-3 text-xs">
+                  <span className="text-foreground">
+                    {h.action}
+                    {h.detail ? <span className="text-muted-foreground"> — {h.detail}</span> : null}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {new Date(h.ts).toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </CardContent>
     </Card>
-  );
-}
-
-// -------------------- AUDIT --------------------
-function AuditView({ facility, review }: { facility: ProcessedFacility; review: ReturnType<typeof useReviews>["reviews"][string] }) {
-  const r = facility.raw;
-  const s = facility.scores;
-  return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-2xl font-semibold tracking-tight">History for this facility</h2>
-        <p className="text-sm text-muted-foreground">Everything we know about {r.name} and every change made to it.</p>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">What's on file</CardTitle>
-            <CardDescription>The original information from the source</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <ReadableRow label="Name" value={r.name} />
-            <ReadableRow label="Location" value={`${r.city}, ${r.state}`} />
-            <ReadableRow label="Postcode" value={r.postcode ?? "—"} />
-            <ReadableRow label="Map coordinates" value={r.latitude != null ? `${r.latitude.toFixed(3)}, ${r.longitude?.toFixed(3)}` : "—"} />
-            <ReadableRow label="Listed services" value={unique(r.specialties).join(", ") || "—"} />
-            <ReadableRow label="Source link" value={r.source_urls[0] ?? "—"} />
-            <div>
-              <p className="text-xs font-medium uppercase text-muted-foreground">Description</p>
-              <p className="mt-1 rounded border bg-muted/30 p-2 text-sm leading-relaxed">{r.description || "—"}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">What we found</CardTitle>
-            <CardDescription>A plain-English summary of issues and evidence</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p>
-              Trust score: <b>{s.qualityScore}/100</b> ·{" "}
-              <PriorityBadge priority={s.priority} />
-            </p>
-            <div>
-              <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Issues</p>
-              {s.flags.length === 0 ? (
-                <p className="text-muted-foreground">No issues found.</p>
-              ) : (
-                <ul className="list-disc space-y-0.5 pl-5">
-                  {s.flags.map((f) => <li key={f}>{FLAG_LABEL[f] ?? f}</li>)}
-                </ul>
-              )}
-            </div>
-            <div>
-              <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Services backed by the description</p>
-              {facility.capabilities.filter((c) => c.strength !== "Missing").length === 0 ? (
-                <p className="text-muted-foreground">None.</p>
-              ) : (
-                <ul className="list-disc space-y-0.5 pl-5">
-                  {facility.capabilities
-                    .filter((c) => c.strength !== "Missing")
-                    .map((c) => (
-                      <li key={c.key}>
-                        <b>{c.key}</b> — {c.strength === "Strong" ? "strong evidence" : "weak evidence"}
-                      </li>
-                    ))}
-                </ul>
-              )}
-            </div>
-            {facility.geoIssues.length > 0 && (
-              <div>
-                <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">Location problems</p>
-                <ul className="list-disc space-y-0.5 pl-5">
-                  {facility.geoIssues.map((g) => <li key={g}>{g}</li>)}
-                </ul>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Your changes</CardTitle>
-          <CardDescription>Current decision: <StatusBadge status={(review?.status ?? "pending") as never} /></CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {review?.notes && (
-            <div className="rounded-md border bg-muted/30 p-3 text-sm">
-              <p className="text-xs font-medium uppercase text-muted-foreground">Your note</p>
-              <p>{review.notes}</p>
-            </div>
-          )}
-          {Object.keys(review?.overrides ?? {}).length > 0 && (
-            <div className="rounded-md border bg-muted/30 p-3 text-sm">
-              <p className="text-xs font-medium uppercase text-muted-foreground">Fields you corrected</p>
-              <ul className="text-sm">
-                {Object.entries(review!.overrides).map(([k, v]) => <li key={k}><b>{k}:</b> {v}</li>)}
-              </ul>
-            </div>
-          )}
-          <div className="rounded-md border bg-muted/30 p-3">
-            <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">What happened, and when</p>
-            {(review?.history ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">No changes yet for this record.</p>
-            ) : (
-              <ul className="space-y-1 text-sm">
-                {[...(review?.history ?? [])].reverse().map((h, i) => (
-                  <li key={i} className="flex items-center justify-between">
-                    <span>{h.action}{h.detail ? ` — ${h.detail}` : ""}</span>
-                    <span className="text-xs text-muted-foreground">{new Date(h.ts).toLocaleString()}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function ReadableRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[140px_1fr] gap-2">
-      <span className="text-xs font-medium uppercase text-muted-foreground">{label}</span>
-      <span className="break-words">{value}</span>
-    </div>
   );
 }
 

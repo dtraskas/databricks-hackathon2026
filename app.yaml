@@ -9,5 +9,7 @@ command:
   - "8000"
 
 env:
-  - name: LAKEBASE_ENDPOINT
-    valueFrom: lakebase-postgres
+  # SQL warehouse the app queries for facility data. Workspace-specific —
+  # set this to a warehouse the app's service principal can use (CAN_USE).
+  - name: DATABRICKS_WAREHOUSE_ID
+    value: "09dcc4e2f84586bd"

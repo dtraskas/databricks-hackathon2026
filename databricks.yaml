@@ -1,14 +1,6 @@
 bundle:
   name: hackathon2026-app
 
-variables:
-  lakebase_branch:
-    description: App to enter Databricks Hackathon 2026
-    default: projects/dev-instance/branches/production
-  lakebase_database:
-    description: Lakebase database resource path
-    default: projects/dev-instance/branches/production/databases/databricks-postgres
-
 sync:
   include:
     - frontend/dist/**
@@ -20,15 +12,6 @@ resources:
       description: "Databeat."
       source_code_path: .
 
-      # Binds the app's service principal to the Lakebase database. On deploy
-      # the platform auto-injects PGHOST/PGPORT/PGDATABASE/PGUSER/PGSSLMODE, and
-      # app.yaml maps this resource to LAKEBASE_ENDPOINT via `valueFrom`.
-      resources:
-        - name: lakebase-postgres
-          postgres:
-            branch: ${var.lakebase_branch}
-            database: ${var.lakebase_database}
-            permission: CAN_CONNECT_AND_CREATE
 
 targets:
   dev:
