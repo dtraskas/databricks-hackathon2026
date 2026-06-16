@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -517,6 +517,10 @@ function FacilityReview({
   // Facility deep-linked from the queue's Review button; may live outside the
   // current city's hospital list, so we fetch it on its own.
   const [injected, setInjected] = useState<Hospital | null>(null);
+  // The deep-linked id, kept in a ref so the city fetch's async callback always
+  // sees it (known immediately, before the detail fetch resolves) and never
+  // clears the selection out from under the deep link once the map data loads.
+  const deepLinkIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -526,7 +530,8 @@ function FacilityReview({
         .then((d) => {
           setData(d);
           setSelectedId((prev) =>
-            prev && (d.facilities.some((f) => f.id === prev) || injected?.id === prev)
+            prev &&
+            (d.facilities.some((f) => f.id === prev) || prev === deepLinkIdRef.current)
               ? prev
               : undefined,
           );
@@ -541,6 +546,7 @@ function FacilityReview({
   // Arriving from the queue: load that facility's record and select it.
   useEffect(() => {
     if (!initialFacilityId) return;
+    deepLinkIdRef.current = initialFacilityId;
     setSelectedId(initialFacilityId);
     fetchHospital(initialFacilityId)
       .then((f) => setInjected(f))
