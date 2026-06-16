@@ -375,9 +375,10 @@ function Queue({
                 <tr>
                   <th className="px-4 py-3">Facility</th>
                   <th className="px-4 py-3">State</th>
-                  <th className="px-4 py-3">Severity</th>
+                  <th className="px-4 py-3">Confidence</th>
                   <th className="px-4 py-3">What's wrong</th>
-                  <th className="px-4 py-3">Priority</th>
+                  <th className="px-4 py-3">Severity</th>
+                  <th className="px-4 py-3">Recommended action</th>
                   <th className="px-4 py-3">Your decision</th>
                   <th className="px-4 py-3"></th>
                 </tr>
@@ -385,14 +386,14 @@ function Queue({
               <tbody>
                 {loading && rows.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">
                       Loading review queue…
                     </td>
                   </tr>
                 )}
                 {!loading && rows.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-12 text-center text-sm text-muted-foreground">
                       No facilities match these filters.
                     </td>
                   </tr>
@@ -402,7 +403,7 @@ function Queue({
                   const conts = r.contradictions.length ? r.contradictions : [null];
                   const n = conts.length;
                   return conts.map((c, idx) => {
-                    const sevPct = Math.round((c?.severity ?? 0) * 100);
+                    const confPct = Math.round((c?.confidence ?? 0) * 100);
                     return (
                       <tr
                         key={c ? c.id : r.id}
@@ -426,16 +427,16 @@ function Queue({
                           <div className="flex items-center gap-2">
                             <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
                               <div
-                                className={cn("h-full", c ? riskBar(c.priority) : "")}
-                                style={{ width: `${sevPct}%` }}
+                                className={cn("h-full", c ? riskBar(c.severity) : "")}
+                                style={{ width: `${confPct}%` }}
                               />
                             </div>
                             <span className="text-xs tabular-nums">
-                              {c?.severity != null ? sevPct + "%" : "—"}
+                              {c?.confidence != null ? confPct + "%" : "—"}
                             </span>
                           </div>
                         </td>
-                        <td className="max-w-[420px] px-4 py-3 align-top">
+                        <td className="max-w-[380px] px-4 py-3 align-top">
                           {c ? (
                             <div className="flex gap-1.5 text-xs text-muted-foreground">
                               <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
@@ -447,10 +448,15 @@ function Queue({
                         </td>
                         <td className="px-4 py-3 align-top">
                           {c ? (
-                            <PriorityBadge priority={c.priority} />
+                            <PriorityBadge priority={c.severity} />
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
+                        </td>
+                        <td className="max-w-[280px] px-4 py-3 align-top">
+                          <span className="text-xs text-muted-foreground">
+                            {c?.recommended_action || "—"}
+                          </span>
                         </td>
                         {idx === 0 && (
                           <td rowSpan={n} className="px-4 py-3 align-top">
